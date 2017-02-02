@@ -17,7 +17,7 @@
             % if query.error == "bad action":
                 Unknown action: <b><span class="mono">${query.action | h}</span></b>.
             % elif query.error == "no search method":
-                No copyvio search methods were selected. A check can only be made using a search engine, links present in the page, or both.
+                No copyvio search methods were selected. A check can only be made using the search engine, links present in the page, Turnitin, or some combination of these.
             % elif query.error == "no URL":
                 URL comparison mode requires a URL to be entered. Enter one in the text box below, or choose copyvio search mode to look for content similar to the article elsewhere on the web.
             % elif query.error == "bad URI":
@@ -46,9 +46,9 @@
         </div>
     % endif
 %endif
-<p>This tool attempts to detect <a href="//en.wikipedia.org/wiki/WP:COPYVIO">copyright violations</a> in articles. In search mode, it will check for similar content elsewhere on the web using <a href="//developer.yahoo.com/boss/search/">Yahoo! BOSS</a> and/or external links present in the text of the page, depending on which options are selected. In comparison mode, the tool will skip the searching step and display a report comparing the article to the given webpage, like the <a href="//tools.wmflabs.org/dupdet/">Duplication Detector</a>.</p>
-<p>Running a full check can take up to 45 seconds if other websites are slow. Please be patient. If you get a timeout, wait a moment and refresh the page.</p>
-<p>Specific websites can be skipped (for example, if their content is in the public domain) by being added to the <a href="//en.wikipedia.org/wiki/User:EarwigBot/Copyvios/Exclusions">excluded URL list</a>.</p>
+<p>This tool attempts to detect <a href="//en.wikipedia.org/wiki/WP:COPYVIO">copyright violations</a> in articles. In <i>search mode</i>, it will check for similar content elsewhere on the web using <a href="https://developers.google.com/custom-search/">Google</a>, external links present in the text of the page, or <a href="//en.wikipedia.org/wiki/Wikipedia:Turnitin">Turnitin</a> (provided by <a href="//en.wikipedia.org/wiki/User:EranBot">EranBot</a>), depending on which options are selected. In <i>comparison mode</i>, the tool will skip the searching step and display a report comparing the article to the given webpage, like the <a href="//tools.wmflabs.org/dupdet/">Duplication Detector</a>.</p>
+<p>Running a full check can take up to a minute if other websites are slow or if the tool is under heavy use. Please be patient. If you get a timeout, wait a moment and refresh the page.</p>
+<p>Specific websites can be skipped (for example, if they copy from Wikipedia) by being added to the <a href="//en.wikipedia.org/wiki/User:EarwigBot/Copyvios/Exclusions">excluded URL list</a>.</p>
 <form id="cv-form" action="${request.script_root}" method="get">
     <table id="cv-form-outer">
         <tr>
@@ -107,12 +107,17 @@
                         </td>
                         <td id="cv-inner-col2"><label for="action-search">Copyvio&nbsp;search:</label></td>
                         <td id="cv-inner-col3">
-                            <input class="cv-search" type="hidden" name="use_engine" value="0" />
-                            <input id="cv-cb-engine" class="cv-search" type="checkbox" name="use_engine" value="1" ${'checked="checked"' if (query.use_engine != "0") else ""} />
+                            <input type="hidden" name="use_engine" value="0" />
+                            <input id="cv-cb-engine" class="cv-search" type="checkbox" name="use_engine" value="1" ${'checked="checked"' if query.use_engine not in ("0", "false") else ""} />
                             <label for="cv-cb-engine">Use&nbsp;search&nbsp;engine</label>
-                            <input class="cv-search" type="hidden" name="use_links" value="0" />
-                            <input id="cv-cb-links" class="cv-search" type="checkbox" name="use_links" value="1" ${'checked="checked"' if (query.use_links != "0") else ""} />
+
+                            <input type="hidden" name="use_links" value="0" />
+                            <input id="cv-cb-links" class="cv-search" type="checkbox" name="use_links" value="1" ${'checked="checked"' if query.use_links not in ("0", "false") else ""} />
                             <label for="cv-cb-links">Use&nbsp;links&nbsp;in&nbsp;page</label>
+
+                            <input type="hidden" name="turnitin" value="0" />
+                            <input id="cv-cb-turnitin" class="cv-search" type="checkbox" name="turnitin" value="1" ${'checked="checked"' if query.turnitin in ("1", "true") else ""}/>
+                            <label for="cv-cb-turnitin">Use&nbsp;Turnitin</label>
                         </td>
                     </tr>
                     <tr>
@@ -146,6 +151,7 @@
         </tr>
     </table>
 </form>
+
 % if result:
     <div id="generation-time">
         Results
@@ -160,6 +166,7 @@
         % endif
         <a href="${request.script_root | h}?lang=${query.lang | h}&amp;project=${query.project | h}&amp;oldid=${query.oldid or query.page.lastrevid | h}&amp;action=${query.action | h}&amp;${"use_engine={0}&use_links={1}".format(int(query.use_engine not in ("0", "false")), int(query.use_links not in ("0", "false"))) if query.action == "search" else "" | h}${"url=" if query.action == "compare" else ""}${query.url if query.action == "compare" else "" | u}">Permalink.</a>
     </div>
+
     <div id="cv-result" class="${'red' if result.confidence >= T_SUSPECT else 'yellow' if result.confidence >= T_POSSIBLE else 'green'}-box">
         <table id="cv-result-head-table">
             <colgroup>
@@ -203,6 +210,27 @@
             </tr>
         </table>
     </div>
+
+    % if query.turnitin_result:
+        <div id="turnitin-container" class="${'red' if query.turnitin_result.reports else 'green'}-box">
+            <div id="turnitin-title">Turnitin Results</div>
+            % if query.turnitin_result.reports:
+                <table id="turnitin-table"><tbody>
+                % for report in turnitin_result.reports:
+                    <tr><td class="turnitin-table-cell"><a href="https://tools.wmflabs.org/eranbot/ithenticate.py?rid=${report.reportid}">Report ${report.reportid}</a> for text added at <a href="https://${query.lang}.wikipedia.org/w/index.php?title=${query.title}&amp;diff=${report.diffid}"> ${report.time_posted.strftime("%H:%M, %d %B %Y (UTC)")}</a>:
+                    <ul>
+                    % for source in report.sources:
+                          <li>${source['percent']}% of revision text (${source['words']} words) found at <a href="${source['url'] | h}">${source['url'] | h}</a></li>
+                    % endfor
+                    </ul></td></tr>
+                % endfor
+                </tbody></table>
+            % else:
+                <div id="turnitin-summary">No matching sources found.</div>
+            % endif
+        </div>
+    % endif
+
     % if query.action == "search":
         <% skips = False %>
         <div id="sources-container">
@@ -233,11 +261,7 @@
                                 % endif
                             </td>
                             <td>
-                                % if i == 0:
-                                    <a href="#cv-chain-table">Compare</a>
-                                % else:
-                                    <a href="${request.script_root | h}?lang=${query.lang | h}&amp;project=${query.project | h}&amp;oldid=${query.oldid or query.page.lastrevid | h}&amp;action=compare&amp;url=${source.url | u}">Compare</a>
-                                % endif
+                                <a href="${request.script_root | h}?lang=${query.lang | h}&amp;project=${query.project | h}&amp;oldid=${query.oldid or query.page.lastrevid | h}&amp;action=compare&amp;url=${source.url | u}">Compare</a>
                             </td>
                         </tr>
                     % endfor

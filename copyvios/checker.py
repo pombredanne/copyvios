@@ -11,6 +11,7 @@ from earwigbot.wiki.copyvios.result import CopyvioSource, CopyvioCheckResult
 
 from .misc import Query, get_db
 from .sites import get_site
+from .turnitin import search_turnitin
 
 __all__ = ["do_check", "T_POSSIBLE", "T_SUSPECT"]
 
@@ -63,9 +64,16 @@ def _get_results(query, follow=True):
         conn = get_db()
         use_engine = 0 if query.use_engine in ("0", "false") else 1
         use_links = 0 if query.use_links in ("0", "false") else 1
-        if not use_engine and not use_links:
+        use_turnitin = 1 if query.turnitin in ("1", "true") else 0
+        if not use_engine and not use_links and not use_turnitin:
             query.error = "no search method"
             return
+
+        # Handle the turnitin check
+        if use_turnitin:
+            query.turnitin_result = search_turnitin(page.title, query.lang)
+
+        # Handle the copyvio check
         mode = "{0}:{1}:".format(use_engine, use_links)
         if not _coerce_bool(query.nocache):
             query.result = _get_cached_results(
@@ -73,7 +81,7 @@ def _get_results(query, follow=True):
         if not query.result:
             try:
                 query.result = page.copyvio_check(
-                    min_confidence=T_SUSPECT, max_queries=10, max_time=45,
+                    min_confidence=T_SUSPECT, max_queries=8, max_time=45,
                     no_searches=not use_engine, no_links=not use_links,
                     short_circuit=not query.noskip)
             except exceptions.SearchQueryError as exc:
@@ -177,13 +185,14 @@ def _get_cached_results(page, conn, mode, noskip):
     return result
 
 def _format_date(cache_time):
-    format = lambda n, w: "{0} {1}{2}".format(n, w, "" if n == 1 else "s")
+    formatter = lambda n, w: "{0} {1}{2}".format(n, w, "" if n == 1 else "s")
     diff = datetime.utcnow() - cache_time
-    if diff.seconds > 3600:
-        return format(diff.seconds / 3600, "hour")
-    if diff.seconds > 60:
-        return format(diff.seconds / 60, "minute")
-    return format(diff.seconds, "second")
+    total_seconds = diff.days * 86400 + diff.seconds
+    if total_seconds > 3600:
+        return formatter(total_seconds / 3600, "hour")
+    if total_seconds > 60:
+        return formatter(total_seconds / 60, "minute")
+    return formatter(total_seconds, "second")
 
 def _cache_result(page, result, conn, mode):
     query1 = "DELETE FROM cache WHERE cache_id = ?"

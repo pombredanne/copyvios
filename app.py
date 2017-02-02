@@ -52,8 +52,7 @@ def setup_app():
     cache.background_data = {}
     cache.last_background_updates = {}
 
-    getLogger("earwigbot.wiki.cvworker").setLevel(INFO)
-    globalize()
+    globalize(num_workers=12)
 
 @app.before_request
 def prepare_request():
@@ -103,7 +102,8 @@ def index():
     update_sites()
     query = do_check()
     return render_template(
-        "index.mako", notice=notice, query=query, result=query.result)
+        "index.mako", notice=notice, query=query, result=query.result,
+        turnitin_result=query.turnitin_result)
 
 @app.route("/settings", methods=["GET", "POST"])
 @catch_errors
